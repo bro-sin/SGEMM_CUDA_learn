@@ -198,6 +198,35 @@ void runSgemm1DBlocktiling(int M, int N, int K, float alpha, float *A, float *B,
       <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
 }
 
+void runMySgemm1DBlocktiling(int M, int N, int K, float alpha, float *A,
+                             float *B, float beta, float *C) {
+  const uint BM = 64;
+  const uint BN = 64;
+  const uint BK = 8;
+  const uint TM = 8;
+  /*
+  根据这个拆分来说，
+  对矩阵A(M*K)拆分为很多个BM*BK的小块
+  对矩阵B(K*N)拆分为很多个BK*BN的小块
+  那么对于矩阵C(M*N)也就是对于每个小块(BM*BN)的计算结果
+  */
+  dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+  /*
+  这里CEIL_DIV(N, BN) 就是矩阵C分块后的列数，CEIL_DIV(M, BM)就是矩阵C分块后的行数
+  从block的分割来看，每一个block就承担计算一个分块结果的任务
+  也就是每一个block应当计算出一个BM*BN的小矩阵
+  */
+  dim3 blockDim((BM * BN) / TM);
+  /*
+  这里的blockDim就是每一个block的线程数，
+  一个block要计算的矩阵有BM*BN个元素，
+  每个线程计算TM个元素的结果
+  一个block设置为(BM*BN)/TM个线程
+  */
+  my_sgemm1DBlocktiling<BM, BN, BK, TM>
+      <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+}
+
 void runSgemm2DBlocktiling(int M, int N, int K, float alpha, float *A, float *B,
                            float beta, float *C) {
   const uint BK = 8;
@@ -553,6 +582,9 @@ void run_kernel(int kernel_num, int M, int N, int K, float alpha, float *A,
     break;
   case 13:
     run_my_sgemm_shared_mem_block(M, N, K, alpha, A, B, beta, C);
+    break;
+  case 14:
+    runMySgemm1DBlocktiling(M, N, K, alpha, A, B, beta, C);
     break;
   default:
     throw std::invalid_argument("Unknown kernel number");

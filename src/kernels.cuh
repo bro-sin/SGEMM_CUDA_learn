@@ -13,3 +13,4 @@
 #include "kernels/8_kernel_bank_extra_col.cuh"
 #include "kernels/9_kernel_autotuned.cuh"
 #include "kernels/13_my_kernel_shared_mem_blocking.cuh"
+#include "kernels/14_my_kernel_1D_blocktiling.cuh"
