@@ -40,19 +40,36 @@ __global__ void my_sgemm2DBlocktiling(
 
     __shared__ float As[BM * BK];
     __shared__ float Bs[BK * BN];
-    assert(BM * BK == blockDim.x);
-    assert(BN * BK == blockDim.x);
+    /*
+    一个block的线程一共有small_C_dim.x * small_C_dim.y个,
+    这个值会比BM*BK以及BK*BN小，因此没办法每个线程加载一个元素就将所有元素加载到共享内存中
+    可以隔几行加载一个元素，
+    但不能隔固定位置加载一个元素，固定的偏差在大矩阵中向下移动的距离是不一样的
+    这里隔的行数就是stridA和stridB
+    */
 
     const uint innerRowA = threadIdx.x / BK;
     const uint innerColumnA = threadIdx.x % BK;
+    const uint stridA = small_C_dim.x * small_C_dim.y / BK;
+
     const uint innerRowB = threadIdx.x / BN;
     const uint innerColumnB = threadIdx.x % BN;
+    const uint stridB = small_C_dim.x * small_C_dim.y / BN;
 
-    const uint outer_dot_nums = CEIL_DIV(K, BK);
+    const uint outer_dot_nums = K / BK;
     for (uint outer_dot_index = 0; outer_dot_index < outer_dot_nums; outer_dot_index++)
     {
-        As[innerRowA * BK + innerColumnA] = A[innerRowA * K + innerColumnA];
-        Bs[innerRowB * BN + innerColumnB] = B[innerRowB * N + innerColumnB];
+        for (uint iter = 0; iter < BM / stridA; iter++)
+        {
+            As[(innerRowA + iter * stridA) * BK + innerColumnA] =
+                A[(innerRowA + iter * stridA) * K + innerColumnA];
+        }
+        for (uint iter = 0; iter < BK / stridB; iter++)
+        {
+            Bs[(innerRowB + iter * stridB) * BN + innerColumnB] =
+                B[(innerColumnB + iter * stridB) * N + innerColumnB];
+        }
+
         __syncthreads();
         A += BK;
         B += BK * N;
