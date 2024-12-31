@@ -59,15 +59,25 @@ __global__ void my_sgemm2DBlocktiling(
     const uint outer_dot_nums = K / BK;
     for (uint outer_dot_index = 0; outer_dot_index < outer_dot_nums; outer_dot_index++)
     {
-        for (uint iter = 0; iter < BM / stridA; iter++)
+        // for (uint iter = 0; iter < BM / stridA; iter++)
+        // {
+        //     As[(innerRowA + iter * stridA) * BK + innerColumnA] =
+        //         A[(innerRowA + iter * stridA) * K + innerColumnA];
+        // }
+        // for (uint iter = 0; iter < BK / stridB; iter++)
+        // {
+        //     Bs[(innerRowB + iter * stridB) * BN + innerColumnB] =
+        //         B[(innerColumnB + iter * stridB) * N + innerColumnB];
+        // }
+        for (uint loadOffset = 0; loadOffset < BM; loadOffset += stridA)
         {
-            As[(innerRowA + iter * stridA) * BK + innerColumnA] =
-                A[(innerRowA + iter * stridA) * K + innerColumnA];
+            As[(innerRowA + loadOffset) * BK + innerColumnA] =
+                A[(innerRowA + loadOffset) * K + innerColumnA];
         }
-        for (uint iter = 0; iter < BK / stridB; iter++)
+        for (uint loadOffset = 0; loadOffset < BK; loadOffset += stridB)
         {
-            Bs[(innerRowB + iter * stridB) * BN + innerColumnB] =
-                B[(innerColumnB + iter * stridB) * N + innerColumnB];
+            Bs[(innerRowB + loadOffset) * BN + innerColumnB] =
+                B[(innerRowB + loadOffset) * N + innerColumnB];
         }
 
         __syncthreads();
