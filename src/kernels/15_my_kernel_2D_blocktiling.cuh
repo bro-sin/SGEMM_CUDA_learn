@@ -40,6 +40,8 @@ __global__ void my_sgemm2DBlocktiling(
 
     __shared__ float As[BM * BK];
     __shared__ float Bs[BK * BN];
+    __shared__ float myAs[BM * BK];
+    __shared__ float myBs[BK * BN];
     /*
     一个block的线程一共有small_C_dim.x * small_C_dim.y个,
     这个值会比BM*BK以及BK*BN小，因此没办法每个线程加载一个元素就将所有元素加载到共享内存中
@@ -59,28 +61,62 @@ __global__ void my_sgemm2DBlocktiling(
     const uint outer_dot_nums = K / BK;
     for (uint outer_dot_index = 0; outer_dot_index < outer_dot_nums; outer_dot_index++)
     {
-        // for (uint iter = 0; iter < BM / stridA; iter++)
-        // {
-        //     As[(innerRowA + iter * stridA) * BK + innerColumnA] =
-        //         A[(innerRowA + iter * stridA) * K + innerColumnA];
-        // }
-        // for (uint iter = 0; iter < BK / stridB; iter++)
-        // {
-        //     Bs[(innerRowB + iter * stridB) * BN + innerColumnB] =
-        //         B[(innerColumnB + iter * stridB) * N + innerColumnB];
-        // }
+        uint test_count_A = 0;
+        uint test_count_myA = 0;
+
+        // 设置四个数组，分别记录myAs和对应A的索引，As和对应A的索引
+        const uint iter_nums = 40; // BM / stridA;
+        uint myAs_index[iter_nums];
+        uint myA_index[iter_nums];
+        uint As_index[iter_nums];
+        uint A_index[iter_nums];
+        for (uint iter = 0; iter < BM / stridA; iter++)
+        {
+            myAs[(innerRowA + iter * stridA) * BK + innerColumnA] =
+                A[(innerRowA + iter * stridA) * K + innerColumnA];
+            myAs_index[test_count_myA] = ((innerRowA + iter * stridA) * BK + innerColumnA);
+            myA_index[test_count_myA] = ((innerRowA + iter * stridA) * K + innerColumnA);
+            test_count_myA++;
+        }
+        assert(BM / stridA - 1 == test_count_myA);
+        for (uint iter = 0; iter < BK / stridB; iter++)
+        {
+            myBs[(innerRowB + iter * stridB) * BN + innerColumnB] =
+                B[(innerColumnB + iter * stridB) * N + innerColumnB];
+        }
         for (uint loadOffset = 0; loadOffset < BM; loadOffset += stridA)
         {
             As[(innerRowA + loadOffset) * BK + innerColumnA] =
                 A[(innerRowA + loadOffset) * K + innerColumnA];
+            As_index[test_count_A] = ((innerRowA + loadOffset) * BK + innerColumnA);
+            A_index[test_count_A] = ((innerRowA + loadOffset) * K + innerColumnA);
+            test_count_A++;
         }
+        assert(BM / stridA - 1 == test_count_A);
         for (uint loadOffset = 0; loadOffset < BK; loadOffset += stridB)
         {
             Bs[(innerRowB + loadOffset) * BN + innerColumnB] =
                 B[(innerRowB + loadOffset) * N + innerColumnB];
         }
 
+        // 判断对应的索引是否相等
+        for (uint i = 0; i < BM / stridA; i++)
+        {
+            if (myAs_index[i] != As_index[i] || myA_index[i] != A_index[i])
+            {
+                printf("myAs_index[%d] = %d, As_index[%d] = %d\n", i, myAs_index[i], i, As_index[i]);
+                printf("myA_index[%d] = %d, A_index[%d] = %d\n", i, myA_index[i], i, A_index[i]);
+            }
+        }
         __syncthreads();
+        // 判断myAs和As是否相等
+        for (uint i = 0; i < BM * BK; i++)
+        {
+            if (myAs[i] != As[i])
+            {
+                printf("myAs[%d] = %f, As[%d] = %f\n", i, myAs[i], i, As[i]);
+            }
+        }
         A += BK;
         B += BK * N;
         for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
