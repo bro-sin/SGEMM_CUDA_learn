@@ -57,6 +57,11 @@ __global__ void my_sgemm2DBlocktiling(
     const uint stridB = small_C_dim.x * small_C_dim.y / BN;
 
     const uint outer_dot_nums = K / BK;
+
+    // float register_cache_A;
+    // float register_cache_A[TM] = {0};
+    // float register_cache_B[TN] = {0};
+
     for (uint outer_dot_index = 0; outer_dot_index < outer_dot_nums; outer_dot_index++)
     {
         for (uint iter = 0; iter < BM / stridA; iter++)
@@ -78,13 +83,31 @@ __global__ void my_sgemm2DBlocktiling(
 
         for (uint inner_dot_index = 0; inner_dot_index < BK; inner_dot_index++)
         {
+            // for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
+            // {
+            //     register_cache_B[resIdxN] = Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
+            // }
+
             for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
             {
+                // register_cache_A = As[(threadRow * TM + resIdxM) * BK + inner_dot_index];
+                // register_cache_A[resIdxM] = As[(threadRow * TM + resIdxM) * BK + inner_dot_index];
+                // if (resIdxM == 0)
+                // {
+                //     for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
+                //     {
+                //         register_cache_B[resIdxN] = Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
+                //     }
+                // }
+
                 for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
                 {
                     threadResults[resIdxM * TN + resIdxN] +=
                         As[(threadRow * TM + resIdxM) * BK + inner_dot_index] *
+                        // register_cache_A *
+                        // register_cache_A[resIdxM] *
                         Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
+                    // register_cache_B[resIdxN];
                 }
             }
         }
