@@ -76,11 +76,11 @@ __global__ void my_sgemm2DBlocktiling(
         A += BK;
         B += BK * N;
 
-        for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
+        for (uint inner_dot_index = 0; inner_dot_index < BK; inner_dot_index++)
         {
-            for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
+            for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
             {
-                for (uint inner_dot_index = 0; inner_dot_index < BK; inner_dot_index++)
+                for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
                 {
                     threadResults[resIdxM * TN + resIdxN] +=
                         As[(threadRow * TM + resIdxM) * BK + inner_dot_index] *
