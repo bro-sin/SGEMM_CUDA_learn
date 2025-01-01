@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <stdio.h>
 
 #define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
 
@@ -78,11 +79,17 @@ __global__ void my_sgemm2DBlocktiling(
             myA_index[test_count_myA] = ((innerRowA + iter * stridA) * K + innerColumnA);
             test_count_myA++;
         }
-        assert(BM / stridA - 1 == test_count_myA);
+        assert(BM / stridA == test_count_myA); // 上面循环中test_count_myA的值等于BM/stridA才停止
+
+        // 记录myBs的索引
+        uint myBsIndex[5];
+        uint myBIndex[5];
         for (uint iter = 0; iter < BK / stridB; iter++)
         {
             myBs[(innerRowB + iter * stridB) * BN + innerColumnB] =
-                B[(innerColumnB + iter * stridB) * N + innerColumnB];
+                B[(innerRowB + iter * stridB) * N + innerColumnB];
+            myBsIndex[iter] = (innerRowB + iter * stridB) * BN + innerColumnB;
+            myBIndex[iter] = (innerRowB + iter * stridB) * N + innerColumnB;
         }
         for (uint loadOffset = 0; loadOffset < BM; loadOffset += stridA)
         {
@@ -92,31 +99,61 @@ __global__ void my_sgemm2DBlocktiling(
             A_index[test_count_A] = ((innerRowA + loadOffset) * K + innerColumnA);
             test_count_A++;
         }
-        assert(BM / stridA - 1 == test_count_A);
+        assert(BM / stridA == test_count_A);
+
+        uint BsIndex[5];
+        uint BIndex[5];
         for (uint loadOffset = 0; loadOffset < BK; loadOffset += stridB)
         {
             Bs[(innerRowB + loadOffset) * BN + innerColumnB] =
                 B[(innerRowB + loadOffset) * N + innerColumnB];
+            BsIndex[loadOffset / stridB] = (innerRowB + loadOffset) * BN + innerColumnB;
+            BIndex[loadOffset / stridB] = (innerRowB + loadOffset) * N + innerColumnB;
         }
 
-        // 判断对应的索引是否相等
-        for (uint i = 0; i < BM / stridA; i++)
+        __syncthreads();
+
+        // 检查两个索引是否一致
+        for (uint i = 0; i < 5; i++)
         {
-            if (myAs_index[i] != As_index[i] || myA_index[i] != A_index[i])
+            if (myBsIndex[i] != BsIndex[i])
+            {
+                printf("myBsIndex[%d] = %d, BsIndex[%d] = %d\n", i, myBsIndex[i], i, BsIndex[i]);
+            }
+            if (myBIndex[i] != BIndex[i])
+            {
+                printf("myBIndex[%d] = %d, BIndex[%d] = %d\n", i, myBIndex[i], i, BIndex[i]);
+            }
+        }
+
+        for (uint i = 0; i < test_count_myA; i++)
+        {
+            if (myAs_index[i] != As_index[i])
             {
                 printf("myAs_index[%d] = %d, As_index[%d] = %d\n", i, myAs_index[i], i, As_index[i]);
+            }
+            if (myA_index[i] != A_index[i])
+            {
                 printf("myA_index[%d] = %d, A_index[%d] = %d\n", i, myA_index[i], i, A_index[i]);
             }
         }
-        __syncthreads();
-        // 判断myAs和As是否相等
+
+        // 检查As和Bs是否与myAs和myBs相等
         for (uint i = 0; i < BM * BK; i++)
         {
-            if (myAs[i] != As[i])
+            if (As[i] != myAs[i])
             {
-                printf("myAs[%d] = %f, As[%d] = %f\n", i, myAs[i], i, As[i]);
+                printf("As[%d] = %f, myAs[%d] = %f,diff=%f\n", i, As[i], i, myAs[i], As[i] - myAs[i]);
             }
         }
+        for (uint i = 0; i < BK * BN; i++)
+        {
+            if (Bs[i] != myBs[i])
+            {
+                printf("Bs[%d] = %f, myBs[%d] = %f,diff=%f\n", i, Bs[i], i, myBs[i], Bs[i] - myBs[i]);
+            }
+        }
+
         A += BK;
         B += BK * N;
         for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
