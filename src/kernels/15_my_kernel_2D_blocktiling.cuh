@@ -52,46 +52,46 @@ __global__ void my_sgemm2DBlocktiling(
     这个值会比BM*BK以及BK*BN小，因此没办法每个线程加载一个元素就将所有元素加载到共享内存中
     可以隔几行加载一个元素，
     但不能隔固定位置加载一个元素，固定的偏差在大矩阵中向下移动的距离是不一样的
-    这里隔的行数就是stridA和stridB
+    这里隔的行数就是strideA和strideB
+    这个也是一个block的线程一次可以加载的行数
+    一个block一次加载stride行，那么有row行，就加载row/stride次
     */
 
     const uint innerRowA = threadIdx.x / BK;
     const uint innerColumnA = threadIdx.x % BK;
-    const uint stridA = small_C_dim.x * small_C_dim.y / BK;
+    const uint strideA = small_C_dim.x * small_C_dim.y / BK;
 
     const uint innerRowB = threadIdx.x / BN;
     const uint innerColumnB = threadIdx.x % BN;
-    const uint stridB = small_C_dim.x * small_C_dim.y / BN;
+    const uint strideB = small_C_dim.x * small_C_dim.y / BN;
 
     const uint outer_dot_nums = CEIL_DIV(K, BK);
 
     // float register_cache_A;
-    // float register_cache_A[TM] = {0};
-    // float register_cache_B[TN] = {0};
+    float register_cache_A[TM] = {0};
+    float register_cache_B[TN] = {0};
 
     for (uint outer_dot_index = 0; outer_dot_index < outer_dot_nums; outer_dot_index++)
     {
-        for (uint iter = 0; iter < BM / stridA; iter++)
+        for (uint _row_load_offset = 0; _row_load_offset < BM; _row_load_offset += strideA)
         {
-            const uint _global_A_row_offset = innerRowA + iter * stridA;
+            const uint _global_A_row_offset = innerRowA + _row_load_offset;
             const uint _global_A_col_offset = innerColumnA;
             if (global_A_col + _global_A_col_offset < K && global_A_row + _global_A_row_offset < M)
             {
-
-                As[(_global_A_row_offset)*BK + innerColumnA] =
+                // 加载A并转置后存到As
+                As[innerColumnA * BM + _global_A_row_offset] =
                     A[(_global_A_row_offset)*K + innerColumnA];
             }
             else
             {
-                As[(_global_A_row_offset)*BK + innerColumnA] = 0.0;
+                As[innerColumnA * BM + _global_A_row_offset] = 0.0;
             }
         }
 
-        for (uint iter = 0; iter < BK / stridB; iter++)
+        for (uint _row_load_offset = 0; _row_load_offset < BK; _row_load_offset += strideB)
         {
-            // Bs[(innerRowB + iter * stridB) * BN + innerColumnB] =
-            //     B[(innerRowB + iter * stridB) * N + innerColumnB];
-            const uint _global_B_row_offset = innerRowB + iter * stridB;
+            const uint _global_B_row_offset = innerRowB + _row_load_offset;
             const uint _global_B_col_offset = innerColumnB;
             if (global_B_col + _global_B_col_offset < N && global_B_row + _global_B_row_offset < K)
             {
@@ -113,31 +113,21 @@ __global__ void my_sgemm2DBlocktiling(
 
         for (uint inner_dot_index = 0; inner_dot_index < BK; inner_dot_index++)
         {
-            // for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
-            // {
-            //     register_cache_B[resIdxN] = Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
-            // }
-
+            for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
+            {
+                // 取Bs的第inner_dot_index*BN行的threadColumn*TN+resIdxN列
+                register_cache_B[resIdxN] = Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
+            }
             for (uint resIdxM = 0; resIdxM < TM; resIdxM++)
             {
-                // register_cache_A = As[(threadRow * TM + resIdxM) * BK + inner_dot_index];
-                // register_cache_A[resIdxM] = As[(threadRow * TM + resIdxM) * BK + inner_dot_index];
-                // if (resIdxM == 0)
-                // {
-                //     for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
-                //     {
-                //         register_cache_B[resIdxN] = Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
-                //     }
-                // }
+                // 取As的数据，但是要转置回去
+                register_cache_A[resIdxM] = As[inner_dot_index * BM + threadRow * TM + resIdxM];
 
                 for (uint resIdxN = 0; resIdxN < TN; resIdxN++)
                 {
                     threadResults[resIdxM * TN + resIdxN] +=
-                        As[(threadRow * TM + resIdxM) * BK + inner_dot_index] *
-                        // register_cache_A *
-                        // register_cache_A[resIdxM] *
-                        Bs[inner_dot_index * BN + threadColumn * TN + resIdxN];
-                    // register_cache_B[resIdxN];
+                        register_cache_A[resIdxM] *
+                        register_cache_B[resIdxN];
                 }
             }
         }
@@ -150,9 +140,6 @@ __global__ void my_sgemm2DBlocktiling(
         {
             const uint _global_C_row_offset = threadRow * TM + resIdxM;
             const uint _global_C_col_offset = threadColumn * TN + resIdxN;
-            // C[(threadRow * TM + resIdxM) * N + threadColumn * TN + resIdxN] =
-            //     alpha * threadResults[resIdxM * TN + resIdxN] +
-            //     beta * C[(threadRow * TM + resIdxM) * N + threadColumn * TN + resIdxN];
             if (global_C_row + _global_C_row_offset < M && global_C_col + _global_C_col_offset < N)
             {
                 C[_global_C_row_offset * N + _global_C_col_offset] =
