@@ -15,4 +15,5 @@
 #include "kernels/13_my_kernel_shared_mem_blocking.cuh"
 #include "kernels/14_my_kernel_1D_blocktiling.cuh"
 #include "kernels/15_my_kernel_2D_blocktiling.cuh"
+#include "kernels/15_my_kernel_2D_blocktiling_with_index_function.cuh"
 #include "kernels/16_my_kernel_vectorize.cuh"
